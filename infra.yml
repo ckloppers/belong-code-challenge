@@ -1,0 +1,47 @@
+##
+# 
+# Belong Coding Challenge
+# Date - August 2019
+#
+# Jacobus Kloppers
+# Mobile: 0413 691 098
+# Website: https://jkloppers.info
+# Blog: https://jkloppers.info/blog
+# Email: JacobusKloppers@icloud.com
+#
+##
+
+Resources: 
+  # A dedicated VPC with a public and private subnet.
+  # VPC called myVPC
+  myVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref "AWS::StackName", "-VPC" ]]
+
+  # public Subnet called myPublicSubnet
+  myPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref myVPC
+      CidrBlock: 10.1.10.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs ]       
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-myPublicSubnet
+
+  # Private Subnet called myPrivateSubnet
+  myPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref myVPC
+      CidrBlock: 10.1.50.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-myPrivateSubnet
