@@ -10,11 +10,20 @@
 # Email: JacobusKloppers@icloud.com
 #
 # Assumptions: 
-# The template will be executed in: us-east-1
-# AMI used: ami-467ca739 (us-east-1 ami) 
+# 1. The template will be executed in: us-east-1
+# 2. Key / Pair generated before executing temmplate, as template will ask for the key to be selected.
+# 2. AMI used: ami-467ca739 (us-east-1 ami) - the template will use this ami
+#
 ##
 
+Parameters:
+  # Prompy to SSH key, so that Developers can SSH into the EC2 intance.
+  myKeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access into the server
+    Type: AWS::EC2::KeyPair::KeyName
+
 Resources: 
+
   # A dedicated VPC with a public and private subnet.
   # VPC called myVPC
   myVPC:
@@ -27,12 +36,28 @@ Resources:
         - Key: Name
           Value: !Join ['', [!Ref "AWS::StackName", "-VPC" ]]
 
-  # public Subnet called myPublicSubnet
+  # Internet Gateway is required to allow resources in a VPC to connect to the public Internet
+  myInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-myInternetGateway
+
+  # attach the Gateway to myVPC
+  myVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref myVPC
+      InternetGatewayId: !Ref myInternetGateway
+
+  # public Subnet called myPublicSubnet - MapPublicIpOnLaunch to that we can access the webserver and ssh into EC2 instance
   myPublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref myVPC
       CidrBlock: 10.1.10.0/24
+      MapPublicIpOnLaunch: true
       AvailabilityZone: !Select [ 0, !GetAZs ]       
       Tags:
       - Key: Name
@@ -49,26 +74,68 @@ Resources:
       - Key: Name
         Value: !Sub ${AWS::StackName}-myPrivateSubnet
 
-  # Security group to open port 22 for SSH access to the EC2 
+  # Setup routing
+  myRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref myVPC
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-myRouteTable
+  
+  myInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: myVPCGatewayAttachment
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref myInternetGateway
+      RouteTableId: !Ref myRouteTable
+
+  #  associate the route table with the public subnet
+  myPublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref myRouteTable
+      SubnetId: !Ref myPublicSubnet
+
+  # Security group to open ports 
   mySecGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: !Sub ${AWS::StackName}-mySecGroup
       VpcId: !Ref myVPC
       SecurityGroupIngress:
+        # 22 for SSH access to the EC2 
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0
-
+        # access to HTTP 
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0 
+  
+  # Create a Elastic Static IP and attach to EC2 instance to be able to server the webpage and to SSH access over port 22
+  myServerStaticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref myEC2Instance
+      
   ## 
-  # Network inteface to attach to EC2 instance
-  # the network interface will reference the private subnet
+  # Network intefaces to attach to EC2 instance
+  #
   ##
-  myNetworkInterface:
+  myPrivateNetworkInterface:
     Type: AWS::EC2::NetworkInterface
     Properties:
       SubnetId: !Ref myPrivateSubnet
+
+  myPublicNetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref myPublicSubnet
+
 
   # EC2 in the private subnet
   myEC2Instance:
@@ -79,8 +146,40 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-myEC2Instance
+      KeyName: !Ref myKeyName
       NetworkInterfaces:
-        - NetworkInterfaceId: !Ref myNetworkInterface
+        - NetworkInterfaceId: !Ref myPublicNetworkInterface
           DeviceIndex: 0
-  
-  
+        #- NetworkInterfaceId: !Ref myPrivateNetworkInterface
+        #  DeviceIndex: 1
+        
+      UserData: 
+        Fn::Base64: 
+          !Sub |
+            #!/bin/bash -ex
+            # set timezone to AEST
+            # first remove the localtime file
+            rm /etc/localtime
+            # change into zoneinfo directory
+            cd /usr/share/zoneinfo
+            # create symlink to AEST
+            ln -s /usr/share/zoneinfo/AEST /etc/localtime
+            
+            # Install and run httpd as a service
+            yum update -y
+            yum install -y httpd
+            systemctl start httpd
+            systemctl enable httpd
+
+            # Set the permission to run webpage from /var/www
+            usermod -a -G apache ec2-user
+            chown -R ec2-user:apache /var/www
+            chmod 2775 /var/www
+            find /var/www -type d -exec chmod 2775 {} \;
+            find /var/www -type f -exec chmod 0664 {} \;
+
+            # Download the file belong-test.html from S3 Bucket (belong-coding-challenge) in Sydney region and service it through httpd.
+            # - Sydney region is ap-southeast-2 
+            # - copy to /var/www (path of httpd document root)
+            aws s3 cp s3://belong-coding-challenge/belong-test.html /var/www --source-region ap-southeast-2
+            systemctl restart httpd
