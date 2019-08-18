@@ -49,26 +49,38 @@ Resources:
       - Key: Name
         Value: !Sub ${AWS::StackName}-myPrivateSubnet
 
+  # Security group to open port 22 for SSH access to the EC2 
+  mySecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub ${AWS::StackName}-mySecGroup
+      VpcId: !Ref myVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  ## 
+  # Network inteface to attach to EC2 instance
+  # the network interface will reference the private subnet
+  ##
+  myNetworkInterface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref myPrivateSubnet
+
   # EC2 in the private subnet
   myEC2Instance:
     Type: AWS::EC2::Instance
     Properties:
       ImageId: ami-467ca739
       InstanceType: t2.micro
-      SecurityGroupIds:
-        - !Ref mySecGroup
-      SubnetId: !Ref myPrivateSubnet
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-myEC2Instance
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref myNetworkInterface
+          DeviceIndex: 0
   
-  # Security group to open port 22 for SSH access to the EC2 
-  mySecGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: !Sub ${AWS::StackName}-mySecGroup
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: 0.0.0.0/0
+  
