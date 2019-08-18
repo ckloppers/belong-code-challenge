@@ -12,7 +12,8 @@
 # Assumptions: 
 # 1. The template will be executed in: us-east-1
 # 2. Key / Pair generated before executing temmplate, as template will ask for the key to be selected.
-# 2. AMI used: ami-467ca739 (us-east-1 ami) - the template will use this ami
+# 3. AMI used: ami-467ca739 (us-east-1 ami) - the template will use this ami
+# 4. infra.yml will be upload with Cloudformation in the AWS console.
 #
 ##
 
